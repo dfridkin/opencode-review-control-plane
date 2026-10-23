@@ -1,0 +1,1 @@
+{"findings":[{"file":"src/orders/export.py","line":7,"severity":"nit","title":"Docstring missing","evidence":"Harmless.","confidence":0.6}],"summary":"Clean rename"}

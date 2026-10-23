@@ -1,0 +1,1 @@
+{"type":"object","properties":{"status":{"type":"string","enum":["confirmed","refuted","uncertain"]},"file":{"type":"string"},"line":{"type":"integer"},"severity":{"type":"string","enum":["blocker","major","minor","nit"]},"reason":{"type":"string"}},"required":["status","severity","reason"]}

@@ -1,0 +1,128 @@
+# review-policy.toml
+#
+# Single source of truth for risk-based review routing.
+# Read by scripts/risk_classify.py (CI) and the /pre-pr skill (local).
+#
+# Rules of the road:
+#   - Tiers are evaluated highest first. A PR takes the highest tier any changed file matches.
+#   - A file that matches no tier gets `default_tier`. Ordinary code needs a human by default;
+#     only the explicit `low` list merges on automated gates alone.
+#   - Model output can ESCALATE a tier. It can never lower one. Paths decide the floor.
+#   - Changing this file, CODEOWNERS, .opencode/, or .github/ is itself a critical change.
+#
+# Glob syntax (gitignore-like):
+#   **   matches across directories
+#   *    matches within one path segment
+#   A pattern with no "/" matches the file name at any depth (e.g. "*.sql").
+
+# Tier for files that match no tier's paths. Ordinary product changes need one person;
+# only docs, copy, and similar low-risk paths skip human review.
+default_tier = "elevated"
+
+[size]
+# Changed lines (additions + deletions) above this route the PR to a human, whatever the paths.
+human_review_above_lines = 400
+# Above this the gate fails outright. Split the PR.
+hard_max_lines = 1500
+# Files that don't count toward size (generated, vendored, lockfiles).
+exclude_from_size = [
+  "*.lock",
+  "package-lock.json",
+  "pnpm-lock.yaml",
+  "poetry.lock",
+  "uv.lock",
+  "**/__generated__/**",
+  "**/gen/**",
+  "vendor/**",
+]
+
+[approvals]
+# Approvals only count if they were submitted against the PR's current head commit.
+require_fresh_approval = true
+# Author associations allowed to approve (GitHub author_association values).
+approver_associations = ["OWNER", "MEMBER", "COLLABORATOR"]
+
+# ---------------------------------------------------------------------------
+# Tiers
+# ---------------------------------------------------------------------------
+
+[[tier]]
+name = "critical"
+min_approvals = 1
+# Owners are written into CODEOWNERS by scripts/sync_codeowners.py.
+# Turn on "Require review from Code Owners" in branch protection so GitHub enforces them.
+owners = ["@your-org/platform-leads"]
+reason = "Auth, money, data shape, infra, or the review system itself"
+paths = [
+  "src/auth/**",
+  "src/billing/**",
+  "src/payments/**",
+  "migrations/**",
+  "*.sql",
+  "infra/**",
+  "terraform/**",
+  # The control plane. An agent must never be able to loosen its own review.
+  # Agent prompts and configuration.
+  ".github/**",
+  "ci/**",
+  ".opencode/**",
+  "opencode.json",
+  "AGENTS.md",
+  "REVIEW.md",
+  "review-policy.toml",
+  "evals/**",
+  "scripts/policy.py",
+  "scripts/risk_classify.py",
+  "scripts/review_gate.py",
+  "scripts/sync_codeowners.py",
+  "scripts/agent_run.py",
+  "scripts/review_orchestrator.py",
+  "scripts/hooks/**",
+  "scripts/ci/**",
+  # Humans own acceptance criteria.
+  "tests/acceptance/**",
+]
+
+[[tier]]
+name = "elevated"
+min_approvals = 1
+owners = []
+reason = "Ordinary product changes, public contracts, dependencies, and config"
+paths = [
+  "src/api/**",
+  "openapi/**",
+  "*.proto",
+  "package.json",
+  "pyproject.toml",
+  "requirements*.txt",
+  "Dockerfile",
+  "docker-compose*.yml",
+  "config/**",
+]
+
+[[tier]]
+name = "low"
+min_approvals = 0
+owners = []
+reason = "Docs, copy, and other changes that cannot alter runtime behavior"
+# Keep this list narrow. Add a path only when the metrics show it is clean.
+paths = [
+  "docs/**",
+  "*.md",
+  "*.txt",
+  "**/locales/**",
+  "**/i18n/**",
+  "**/__snapshots__/**",
+]
+
+# ---------------------------------------------------------------------------
+# Escalation signals (can only raise the tier)
+# ---------------------------------------------------------------------------
+
+[escalation]
+# PR labels that force a tier. Any maintainer can add one to pull a PR into human review.
+labels = { "risk:high" = "critical" }
+# Security review verdicts mapped to tiers. "fail" blocks the gate outright.
+# Any verdict not listed here and not "pass" (e.g. "unavailable" when the job errored or
+# had no API key) fails closed into the lowest tier that requires a human.
+security_verdicts = { "escalate" = "elevated" }

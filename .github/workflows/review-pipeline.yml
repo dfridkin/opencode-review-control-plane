@@ -1,0 +1,160 @@
+# Layers 3 and 5: blocking security review, then risk-routed human gate.
+#
+# Required status checks in branch protection: `review-gate` (commit status) plus the ci jobs.
+# Do NOT make the security job itself required; the gate already folds its verdict in,
+# and the gate is the only review check that also reports on merge-queue commits.
+#
+# Trust model: the PR under review must not be able to change the rules it is judged by.
+#   - security: prompts, agent files, scripts, and opencode config are restored from the base
+#     commit. opencode gets its CI config from ci/opencode.ci.json via OPENCODE_CONFIG_CONTENT,
+#     which outranks the repo's opencode.json, and runs read-only. Model from REVIEW_MODEL.
+#   - gate: runs entirely from a checkout of the base commit.
+# Never switch this to `pull_request_target` with a checkout of the PR head.
+
+name: review-pipeline
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: review-pipeline-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mark-pending:
+    if: github.event_name == 'pull_request' && !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    permissions:
+      statuses: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Gate is pending until this commit's security review finishes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          gh api "repos/$REPO/statuses/$SHA" -f state=pending -f context=review-gate \
+            -f description="Security review running" > /dev/null
+          for l in $(gh api "repos/$REPO/issues/$PR/labels" --jq '.[].name | select(startswith("security:"))'); do
+            gh pr edit "$PR" --repo "$REPO" --remove-label "$l" > /dev/null || true
+          done
+          gh label create "security:pending" --repo "$REPO" --color EDEDED --force > /dev/null 2>&1 || true
+          gh pr edit "$PR" --repo "$REPO" --add-label "security:pending" > /dev/null
+
+  security:
+    needs: mark-pending
+    runs-on: ${{ fromJSON(vars.REVIEW_RUNS_ON || '"ubuntu-latest"') }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    outputs:
+      verdict: ${{ steps.review.outputs.verdict }}
+    env:
+      REVIEW_MODEL: ${{ vars.REVIEW_MODEL }}
+      LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+      LLM_CONTEXT: ${{ vars.LLM_CONTEXT }}
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Restore reviewer instructions from the base commit
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # Paths missing on the base (only on the PR that first adds this template) are left as-is.
+          for p in ci scripts .opencode opencode.json AGENTS.md REVIEW.md review-policy.toml .github/review-prompts; do
+            if git cat-file -e "$BASE:$p" 2>/dev/null; then rm -rf "$p" && git checkout "$BASE" -- "$p"; fi
+          done
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install opencode
+        run: bash scripts/ci/install_opencode.sh
+      - name: Security review
+        id: review
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: bash scripts/ci/security_review.sh
+      - name: Record verdict as a label
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          VERDICT: ${{ steps.review.outputs.verdict || 'unavailable' }}
+        run: |
+          gh label create "security:$VERDICT" --repo "$REPO" --color D4C5F9 --force > /dev/null 2>&1 || true
+          gh pr edit "$PR" --repo "$REPO" --remove-label "security:pending" > /dev/null || true
+          gh pr edit "$PR" --repo "$REPO" --add-label "security:$VERDICT" > /dev/null
+      - name: Comment when a human needs to look
+        if: steps.review.outputs.verdict != 'pass'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          f="$RUNNER_TEMP/security.json"
+          {
+            echo "### Security review: \`$(jq -r .verdict "$f")\`"
+            echo
+            jq -r .risk_notes "$f"
+            echo
+            jq -r '.findings[] | "- **\(.severity)** `\(.file):\(.line)` [\(.category)] \(.title)\n  - \(.evidence)"' "$f"
+          } > "$RUNNER_TEMP/security-comment.md"
+          bash scripts/ci/upsert_comment.sh security-review "$RUNNER_TEMP/security-comment.md"
+
+  gate:
+    needs: security
+    if: always() && github.event_name == 'pull_request' && !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      statuses: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Classify risk and post review-gate status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          # Empty when the security job errored: fail closed.
+          SECURITY_VERDICT: ${{ needs.security.outputs.verdict || 'unavailable' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash scripts/ci/run_gate.sh
+
+  # Merge queue: required checks must also report on the merge-group commit.
+  # Only PRs that already satisfied branch protection (including review-gate) enter the queue.
+  merge-queue-passthrough:
+    if: github.event_name == 'merge_group'
+    runs-on: ubuntu-latest
+    permissions:
+      statuses: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/statuses/${{ github.event.merge_group.head_sha }}" \
+            -f state=success -f context=review-gate \
+            -f description="Satisfied before entering the merge queue" > /dev/null

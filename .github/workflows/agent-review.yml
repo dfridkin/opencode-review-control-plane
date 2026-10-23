@@ -1,0 +1,109 @@
+# Layer 2: multi-agent PR review with opencode, self-hosted on your runners.
+#
+#   scripts/review_orchestrator.py
+#     hunters (parallel, one per focus area) -> dedupe -> verifier per candidate
+#   scripts/ci/post_review.py      inline comments for confirmed findings only
+#   scripts/ci/review_summary.py   summary comment + optional blocking
+#
+# Repository variables:
+#   REVIEW_MODEL    provider/model, e.g. openweight/qwen3-coder
+#   REVIEW_RUNS_ON  JSON runner spec. Default "ubuntu-latest". For a model on your own GPU box:
+#                   '["self-hosted","gpu"]'
+#   LLM_BASE_URL    OpenAI-compatible endpoint for the opencode `openweight` provider
+#   REVIEW_BLOCK_ON none (default) | blocker | major
+# Secret: LLM_API_KEY (only if your endpoint needs one)
+#
+# Starts ADVISORY. Raise REVIEW_BLOCK_ON once the eval set and a few weeks of findings
+# show the false-positive rate is acceptable for the model you picked.
+
+name: agent-review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ${{ fromJSON(vars.REVIEW_RUNS_ON || '"ubuntu-latest"') }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    env:
+      REVIEW_MODEL: ${{ vars.REVIEW_MODEL }}
+      LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+      LLM_CONTEXT: ${{ vars.LLM_CONTEXT }}
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Use reviewer configuration from the base commit
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # The PR must not be able to rewrite its own reviewer. Paths missing on the
+          # base (only on the PR that first adds this template) are left as-is.
+          for p in ci scripts .opencode opencode.json AGENTS.md REVIEW.md .github/review-prompts; do
+            if git cat-file -e "$BASE:$p" 2>/dev/null; then
+              rm -rf "$p" && git checkout "$BASE" -- "$p"
+            fi
+          done
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install opencode
+        run: bash scripts/ci/install_opencode.sh
+
+      - name: Review
+        id: review
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git diff --no-color "$BASE_SHA...HEAD" > "$RUNNER_TEMP/pr.diff"
+          set +e
+          python3 scripts/review_orchestrator.py --base "$BASE_SHA" \
+            --diff "$RUNNER_TEMP/pr.diff" --out "$RUNNER_TEMP/findings.json"
+          echo "rc=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Post inline comments
+        if: steps.review.outputs.rc == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/ci/post_review.py --findings "$RUNNER_TEMP/findings.json" \
+            --diff "$RUNNER_TEMP/pr.diff" --repo "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --head-sha "${{ github.event.pull_request.head.sha }}"
+
+      - name: Summarize and apply blocking policy
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          export REVIEW_JSON="$(cat "$RUNNER_TEMP/findings.json" 2>/dev/null || true)"
+          set +e
+          python3 scripts/ci/review_summary.py \
+            --block-on "${{ vars.REVIEW_BLOCK_ON || 'none' }}" \
+            --engine-label "${REVIEW_MODEL:-no model set}" \
+            --out "$RUNNER_TEMP/review-comment.md"
+          rc=$?
+          set -e
+          cat "$RUNNER_TEMP/review-comment.md" >> "$GITHUB_STEP_SUMMARY"
+          bash scripts/ci/upsert_comment.sh agent-review-summary "$RUNNER_TEMP/review-comment.md"
+          exit $rc

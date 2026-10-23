@@ -1,0 +1,45 @@
+# Human decision #1: "Should we build it?" happens here, before any code exists.
+# An agent works from this issue. If a field can't be filled in, the work isn't ready.
+name: Agent-ready task
+description: A task scoped tightly enough for an agent to implement and for automation to verify
+labels: ["agent-ready"]
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: What is true when this is done? Write it from the user's or system's point of view.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Checkable statements. These become tests in tests/acceptance/ (human-owned).
+      placeholder: |
+        - Given ..., when ..., then ...
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: What the agent must NOT change. Saves a round of review.
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Expected risk
+      description: Your call. The gate will compute the real tier from the diff; it can only go up.
+      options:
+        - low (automated gates only)
+        - elevated (one human)
+        - critical (code owner)
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints and context
+      description: Interfaces that must not change, performance budgets, related incidents, links.

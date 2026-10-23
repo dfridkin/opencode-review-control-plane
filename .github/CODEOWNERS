@@ -1,0 +1,28 @@
+# --- BEGIN review-policy managed block (scripts/sync_codeowners.py) ---
+# Generated from review-policy.toml. Edit the policy, then run --write.
+# tier: critical (Auth, money, data shape, infra, or the review system itself)
+/src/auth/** @your-org/platform-leads
+/src/billing/** @your-org/platform-leads
+/src/payments/** @your-org/platform-leads
+/migrations/** @your-org/platform-leads
+*.sql @your-org/platform-leads
+/infra/** @your-org/platform-leads
+/terraform/** @your-org/platform-leads
+/.github/** @your-org/platform-leads
+/ci/** @your-org/platform-leads
+/.opencode/** @your-org/platform-leads
+opencode.json @your-org/platform-leads
+AGENTS.md @your-org/platform-leads
+REVIEW.md @your-org/platform-leads
+review-policy.toml @your-org/platform-leads
+/evals/** @your-org/platform-leads
+/scripts/policy.py @your-org/platform-leads
+/scripts/risk_classify.py @your-org/platform-leads
+/scripts/review_gate.py @your-org/platform-leads
+/scripts/sync_codeowners.py @your-org/platform-leads
+/scripts/agent_run.py @your-org/platform-leads
+/scripts/review_orchestrator.py @your-org/platform-leads
+/scripts/hooks/** @your-org/platform-leads
+/scripts/ci/** @your-org/platform-leads
+/tests/acceptance/** @your-org/platform-leads
+# --- END review-policy managed block ---

@@ -1,0 +1,6 @@
+{
+  "incident_cases": 2,
+  "control_cases": 1,
+  "recall": 1.0,
+  "false_positive_rate": 0.0
+}

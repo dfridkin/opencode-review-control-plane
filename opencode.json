@@ -1,0 +1,41 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [".opencode/rules/*.md"],
+  "permission": {
+    "edit": {
+      "*": "allow",
+      "tests/acceptance/**": "deny",
+      "evals/**": "deny",
+      "review-policy.toml": "deny",
+      "REVIEW.md": "deny",
+      ".github/**": "deny",
+      "ci/**": "deny",
+      "scripts/hooks/**": "deny",
+      ".opencode/**": "deny",
+      "opencode.json": "deny",
+      "AGENTS.md": "deny"
+    },
+    "shell": {
+      "*": "allow",
+      "git push --force*": "deny",
+      "git push -f*": "deny",
+      "git commit --no-verify*": "deny"
+    }
+  },
+  "provider": {
+    "openweight": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Open-weight model (OpenAI-compatible endpoint)",
+      "options": {
+        "baseURL": "{env:LLM_BASE_URL}",
+        "apiKey": "{env:LLM_API_KEY}"
+      },
+      "models": {
+        "qwen3-coder": {
+          "name": "Example: replace with the model ID your server returns from GET /v1/models",
+          "limit": { "context": 131072, "output": 16384 }
+        }
+      }
+    }
+  }
+}

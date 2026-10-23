@@ -1,0 +1,74 @@
+# Replays past incidents against the reviewer. A change that lowers recall or raises
+# false positives fails here and should not merge.
+#
+# Each model has its own baseline in evals/baselines/, so the same incidents also compare
+# candidate models on your own failures before one reviews your PRs.
+
+name: review-evals
+
+on:
+  pull_request:
+    paths:
+      - ".opencode/**"
+      - "AGENTS.md"
+      - "REVIEW.md"
+      - "opencode.json"
+      - "ci/**"
+      - ".github/review-prompts/**"
+      - "evals/**"
+      - "scripts/agent_run.py"
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "provider/model (blank = REVIEW_MODEL variable)"
+        default: ""
+      runs:
+        description: "Runs per case (majority vote)"
+        default: "3"
+
+permissions:
+  contents: read
+
+jobs:
+  evals:
+    runs-on: ${{ fromJSON(vars.REVIEW_RUNS_ON || '"ubuntu-latest"') }}
+    timeout-minutes: 60
+    env:
+      REVIEW_MODEL: ${{ inputs.model || vars.REVIEW_MODEL }}
+      LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+      LLM_CONTEXT: ${{ vars.LLM_CONTEXT }}
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+    steps:
+      # Here we DO want the PR's version of the prompts: they are what's under test.
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install opencode
+        run: bash scripts/ci/install_opencode.sh
+      - name: Baseline comes from the base branch, not the PR
+        id: baseline
+        run: |
+          name="$(python3 -c "import re,os; m=os.environ.get('REVIEW_MODEL') or 'default'; print(re.sub(r'[^A-Za-z0-9._-]+','_',m).strip('_') or 'default')")"
+          path="evals/baselines/$name.json"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # Base only: a PR must not be able to supply the bar it is measured against.
+            git show "${{ github.event.pull_request.base.sha }}:$path" > "$RUNNER_TEMP/baseline.json" 2>/dev/null || true
+          else
+            cp "$path" "$RUNNER_TEMP/baseline.json" 2>/dev/null || true
+          fi
+          if [ -s "$RUNNER_TEMP/baseline.json" ]; then
+            echo "args=--baseline $RUNNER_TEMP/baseline.json" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::No baseline at $path for this model. Scores are reported, not gated."
+            echo "args=--baseline $RUNNER_TEMP/none.json" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Run evals
+        run: |
+          python3 evals/run_evals.py --live \
+            --runs "${{ inputs.runs || '3' }}" \
+            ${{ steps.baseline.outputs.args }}

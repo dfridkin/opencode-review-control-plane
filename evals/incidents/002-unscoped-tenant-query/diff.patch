@@ -1,0 +1,22 @@
+diff --git a/src/billing/invoices.py b/src/billing/invoices.py
+index 51aa0c2..c07b3e8 100644
+--- a/src/billing/invoices.py
++++ b/src/billing/invoices.py
+@@ -1,15 +1,12 @@
+ from sqlalchemy.orm import Session
+
+ from .models import Invoice
+ from .errors import NotFound
+
+
+ def get_invoice(db: Session, tenant_id: str, invoice_id: str) -> Invoice:
+-    invoice = (
+-        db.query(Invoice)
+-        .filter(Invoice.tenant_id == tenant_id, Invoice.id == invoice_id)
+-        .first()
+-    )
++    # use the shared primary-key lookup
++    invoice = db.get(Invoice, invoice_id)
+     if invoice is None:
+         raise NotFound(f"invoice {invoice_id}")
+     return invoice

@@ -1,0 +1,43 @@
+# Layer 4: required CI. Make `verify` and `control-plane` required status checks.
+name: ci
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # `make verify` fails until you wire lint/typecheck/test in the Makefile.
+      # A gate that passes vacuously is worse than no gate.
+      - run: make verify
+
+  control-plane:
+    name: control-plane
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Unit tests for the review scripts
+        run: make control-plane-test
+      - name: CODEOWNERS matches review-policy.toml
+        run: python3 scripts/sync_codeowners.py --check

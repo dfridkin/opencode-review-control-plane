@@ -1,0 +1,57 @@
+# Re-evaluate review-gate when a human acts: a review is submitted or dismissed, or a
+# maintainer adds/removes a label such as `risk:high`.
+# Reads the security verdict from the `security:<verdict>` label that review-pipeline set
+# for the current commit. While that is `security:pending` (or missing), the gate stays pending.
+#
+# Labels added by the workflow's own GITHUB_TOKEN do not trigger this workflow, so there is no loop.
+
+name: review-gate-refresh
+
+on:
+  pull_request_review:
+    types: [submitted, dismissed]
+  pull_request:
+    types: [labeled, unlabeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: review-gate-refresh-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    if: ${{ !github.event.pull_request.draft && !startsWith(github.event.label.name || '', 'security:') && !startsWith(github.event.label.name || '', 'tier:') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      statuses: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Read security verdict for this commit
+        id: verdict
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="$(gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels" \
+                --jq '[.[].name | select(startswith("security:")) | sub("^security:"; "")] | first // "pending"')"
+          echo "value=$v" >> "$GITHUB_OUTPUT"
+      - name: Classify risk and post review-gate status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          SECURITY_VERDICT: ${{ steps.verdict.outputs.value }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash scripts/ci/run_gate.sh

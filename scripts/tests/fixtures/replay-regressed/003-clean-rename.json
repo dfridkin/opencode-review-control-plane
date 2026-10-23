@@ -1,0 +1,1 @@
+{"findings":[{"file":"src/orders/export.py","line":7,"severity":"major","title":"Renaming params breaks keyword callers","evidence":"Callers using to_csv(rws=...) will fail.","confidence":0.7}],"summary":"noisy"}

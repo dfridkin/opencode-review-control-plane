@@ -1,0 +1,12 @@
+# EXAMPLE CASE. Replace with your own incidents.
+# Harvest from: reverted PRs, postmortems, PRs labeled `incident-cause`.
+id = "001-pagination-off-by-one"
+kind = "incident"
+source = "Example: INC-0000 / revert of PR #000"
+description = "Pagination refactor skipped the first item of every page after page 1. Customers reported missing orders in exports."
+line_tolerance = 3
+
+[[expected]]
+file = "src/orders/pagination.py"
+line = 14
+keywords = ["off-by-one", "off by one", "skips", "skipped", "missing item", "+ 1", "+1"]

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "autoupdate": false,
+  "share": "disabled",
+  "instructions": [],
+  "permission": {
+    "*": "deny",
+    "read": "allow",
+    "glob": "allow",
+    "grep": "allow",
+    "list": "allow",
+    "edit": "deny",
+    "webfetch": "deny",
+    "websearch": "deny",
+    "task": "deny",
+    "skill": "deny",
+    "question": "deny",
+    "external_directory": "deny",
+    "doom_loop": "deny",
+    "shell": {
+      "*": "deny",
+      "git diff*": "allow",
+      "git log*": "allow",
+      "git show*": "allow"
+    }
+  },
+  "agent": {
+    "ci-reviewer": {
+      "description": "Headless, read-only reviewer used by scripts/agent_run.py in CI. Instructions arrive in the message.",
+      "mode": "primary",
+      "temperature": 0.1,
+      "steps": 40
+    }
+  },
+  "provider": {
+    "openweight": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Open-weight model (OpenAI-compatible endpoint)",
+      "options": {
+        "baseURL": "{env:LLM_BASE_URL}",
+        "apiKey": "{env:LLM_API_KEY}"
+      },
+      "models": {}
+    }
+  }
+}

@@ -1,0 +1,39 @@
+# Step 0 and the ongoing check: are reverts and incidents flat while human review time drops?
+
+name: review-metrics
+
+on:
+  schedule:
+    - cron: "41 7 * * 1"
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Window in days"
+        default: "28"
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  metrics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compute
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          since="$(date -u -d "${{ inputs.days || '28' }} days ago" +%F)"
+          python3 scripts/review_metrics.py --since "$since" --markdown metrics.md > metrics.json
+          cat metrics.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: review-metrics-${{ github.run_id }}
+          path: |
+            metrics.json
+            metrics.md

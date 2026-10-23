@@ -1,0 +1,6 @@
+# CONTROL CASE: a clean diff. The reviewer should report nothing at major or above.
+# Keep roughly one control per two incidents so the score punishes noise, not only misses.
+id = "003-clean-rename"
+kind = "control"
+source = "Example: routine refactor that shipped without issue"
+description = "Pure rename with no behavior change."

@@ -1,0 +1,1 @@
+{"findings":[{"file":"src/billing/invoices.py","line":9,"severity":"blocker","title":"Invoice lookup no longer scoped to tenant","evidence":"db.get(Invoice, invoice_id) ignores tenant_id; caller from tenant A can read tenant B's invoice by ID.","confidence":0.95}],"summary":"1 blocker"}

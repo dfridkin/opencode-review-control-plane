@@ -1,0 +1,20 @@
+diff --git a/src/orders/export.py b/src/orders/export.py
+index 7d2e110..a41f9c3 100644
+--- a/src/orders/export.py
++++ b/src/orders/export.py
+@@ -4,10 +4,10 @@ import csv
+ from io import StringIO
+
+
+-def to_csv(rws: list[dict], cols: list[str]) -> str:
++def to_csv(rows: list[dict], columns: list[str]) -> str:
+     buf = StringIO()
+-    w = csv.DictWriter(buf, fieldnames=cols, extrasaction="ignore")
+-    w.writeheader()
+-    for r in rws:
+-        w.writerow(r)
++    writer = csv.DictWriter(buf, fieldnames=columns, extrasaction="ignore")
++    writer.writeheader()
++    for row in rows:
++        writer.writerow(row)
+     return buf.getvalue()

@@ -1,0 +1,11 @@
+# EXAMPLE CASE. Replace with your own incidents.
+id = "002-unscoped-tenant-query"
+kind = "incident"
+source = "Example: INC-0001 / security postmortem"
+description = "Refactor to a shared lookup helper dropped the tenant filter. Any authenticated user could fetch another tenant's invoice by ID."
+line_tolerance = 3
+
+[[expected]]
+file = "src/billing/invoices.py"
+line = 9
+keywords = ["tenant", "cross-tenant", "scope", "scoping", "authorization", "idor", "another customer", "other tenant"]

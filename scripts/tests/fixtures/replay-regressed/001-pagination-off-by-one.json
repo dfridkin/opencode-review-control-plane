@@ -1,0 +1,1 @@
+{"findings":[{"file":"src/orders/pagination.py","line":14,"severity":"blocker","title":"Off-by-one: pages after the first skip one item","evidence":"page=2,size=10 -> start=11, so rows[10] is never returned on any page.","confidence":0.92}],"summary":"1 blocker"}

@@ -1,0 +1,29 @@
+diff --git a/src/orders/pagination.py b/src/orders/pagination.py
+index 3b1c2a0..9f4e7d1 100644
+--- a/src/orders/pagination.py
++++ b/src/orders/pagination.py
+@@ -1,19 +1,21 @@
+ from dataclasses import dataclass
+
+
+ @dataclass
+ class Page:
+     items: list
+     page: int
+     size: int
+     total: int
+
+
+ def paginate(rows: list, page: int, size: int) -> Page:
+-    start = (page - 1) * size
+-    end = start + size
++    # page is 1-based; compute window for the requested page
++    start = (page - 1) * size + (1 if page > 1 else 0)
++    end = start + size
+     return Page(items=rows[start:end], page=page, size=size, total=len(rows))
+
+
+ def page_count(total: int, size: int) -> int:
+-    return (total + size - 1) // size
++    # ceiling division
++    return -(-total // size)
