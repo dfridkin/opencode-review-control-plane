@@ -10,10 +10,10 @@ trusts, and what it leaves out. Start with the [README](../README.md) and [SETUP
 | 0 | Baseline | Revert share, incident-linked PRs, review rounds, time to merge, human-approved share | `scripts/review_metrics.py`, `review-metrics.yml` |
 | 1 | Incident evals | Past incidents replayed against the reviewer, one baseline per model | `evals/`, `review-evals.yml` |
 | 2 | Pre-PR | Plugin blocks "done" while `make verify` fails; `/pre-pr` runs a fresh-context review subagent | `.opencode/plugins/`, `scripts/hooks/`, `.opencode/commands/`, `.opencode/agents/` |
-| 3 | PR review | One `bug-hunter` per focus area, then a `finding-verifier` per candidate; only confirmed findings get posted. A round cap flags stuck PRs `needs-human` and notifies Slack | `agent-review.yml`, `human-review-notify.yml`, `scripts/review_orchestrator.py` |
-| 4 | Security | Blocking review: `pass`, `escalate` (route to a human), or `fail` (block) | `review-pipeline.yml`, `.github/review-prompts/security.md` |
+| 3 | PR review | One `bug-hunter` per focus area, then a `finding-verifier` per candidate; only confirmed findings get posted. A round cap flags stuck PRs `needs-human` and posts to the needs-human Slack channel | `agent-review.yml`, `human-review-notify.yml`, `scripts/review_orchestrator.py` |
+| 4 | Security | Blocking review: `pass`, `escalate` (route to a human), or `fail` (block). Anything but `pass` posts to the security Slack channel | `review-pipeline.yml`, `.github/review-prompts/security.md` |
 | 5 | CI | Lint, types, tests, coverage floor. Fails until you wire it | `ci.yml`, `Makefile` |
-| 6 | Human gate | Risk tier from paths and size; model output can only escalate | `review-policy.toml`, `scripts/risk_classify.py`, `scripts/review_gate.py` |
+| 6 | Human gate | Risk tier from paths and size; model output can only escalate. A PR newly waiting on a person posts to the approvals Slack channel | `review-policy.toml`, `scripts/risk_classify.py`, `scripts/review_gate.py` |
 | 7 | Release | Merge queue, flags, staged rollout, fast rollback | your deploy tooling |
 
 ### Risk tiers

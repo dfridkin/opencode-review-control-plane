@@ -18,7 +18,8 @@ each model you are considering. Pick the one that clears your bar on your own in
 
 - Turn on `agent-review.yml` (advisory, `REVIEW_BLOCK_ON=none`) and `review-pipeline.yml`.
 - Keep your current human review rules unchanged. Make `review-gate` visible but NOT required.
-- Set up the Slack webhook for `needs-human` (SETUP.md, section 3) so stuck PRs reach a person.
+- Set up the `needs-human` and security Slack channels (SETUP.md, section 4). Leave the approvals
+  channel off for now: while your old review rules still apply, it would post for most PRs.
 - Every week: read the findings humans dismissed. Each confirmed false positive becomes a control
   case; each bug the agents missed and a human caught becomes an incident case.
 
@@ -32,6 +33,9 @@ ignoring the comments; the tier the gate computes matches what your senior engin
   gates. Everything else still needs a human.
 - Set `REVIEW_BLOCK_ON=blocker` and add the `review` job from `agent-review.yml` to the required
   checks. Without the second step, a failing review does not stop a merge.
+
+- Turn on the approvals Slack channel (`SLACK_WEBHOOK_APPROVALS`) so the people who approve
+  each tier hear about PRs waiting on them.
 
 **Exit:** four weeks with revert share and incident-linked share at or below baseline.
 If either rises, revert to Phase 1 and look at which tier the bad PRs came from.

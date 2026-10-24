@@ -114,6 +114,27 @@ jobs:
             jq -r '.findings[] | "- **\(.severity)** `\(.file):\(.line)` [\(.category)] \(.title)\n  - \(.evidence)"' "$f"
           } > "$RUNNER_TEMP/security-comment.md"
           bash scripts/ci/upsert_comment.sh security-review "$RUNNER_TEMP/security-comment.md"
+      - name: Notify the security channel
+        if: always() && steps.review.outputs.verdict != 'pass'
+        env:
+          SLACK_WEBHOOK_SECURITY: ${{ secrets.SLACK_WEBHOOK_SECURITY }}
+          SLACK_MENTION_SECURITY: ${{ vars.SLACK_MENTION_SECURITY }}
+          VERDICT: ${{ steps.review.outputs.verdict || 'unavailable' }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          f="$RUNNER_TEMP/security.json"
+          case "$VERDICT" in
+            fail)        reason="Concrete issue found. The merge is blocked until it is fixed." ;;
+            escalate)    reason="Sensitive surface or incomplete inspection. Routed to a person." ;;
+            *)           reason="No usable verdict (job error, missing key, or fork PR). Routed to a person." ;;
+          esac
+          notes="$(jq -r '.risk_notes // empty' "$f" 2>/dev/null || true)"
+          python3 scripts/ci/notify_slack.py --kind security --pr-url "$PR_URL" --title "$PR_TITLE" \
+            --author "$PR_AUTHOR" --headline "Security review: $VERDICT" \
+            --reason "$reason${notes:+ $notes}" --findings "$f"
+
 
   gate:
     needs: security
@@ -142,6 +163,11 @@ jobs:
           # Empty when the security job errored: fail closed.
           SECURITY_VERDICT: ${{ needs.security.outputs.verdict || 'unavailable' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # Layer 5 Slack notice when the PR first needs a person at its tier (see run_gate.sh)
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          SLACK_WEBHOOK_APPROVALS: ${{ secrets.SLACK_WEBHOOK_APPROVALS }}
+          SLACK_MENTION_APPROVALS: ${{ vars.SLACK_MENTION_APPROVALS }}
         run: bash scripts/ci/run_gate.sh
 
   # Merge queue: required checks must also report on the merge-group commit.

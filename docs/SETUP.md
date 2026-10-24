@@ -8,11 +8,8 @@
 | `REVIEW_RUNS_ON` | variable, optional | JSON runner spec for the review jobs. Default `"ubuntu-latest"`. Use e.g. `["self-hosted","gpu"]` when the model endpoint is only reachable from your network. |
 | `REVIEW_BLOCK_ON` | variable, optional | `none` (default), `blocker`, or `major`. Controls whether `agent-review` fails its check. |
 | `REVIEW_ROUND_CAP` | variable, optional | Consecutive review rounds with a verified blocker or major before a PR is flagged `needs-human`. Default `3`; `0` turns it off. |
-| `SLACK_WEBHOOK_URL` | secret, optional | Slack incoming webhook for `needs-human` notices. Unset: no notices, everything else works. See section 3. |
-| `SLACK_MENTION` | variable, optional | Who to ping in the notice, e.g. `<!subteam^S0123ABCD>` for a user group or `<!here>`. |
-
-Install the Claude GitHub App on the repo for `claude-review.yml` (inline comments), or run
-`/install-github-app` from Claude Code.
+| `SLACK_WEBHOOK_NEEDS_HUMAN`, `SLACK_WEBHOOK_SECURITY`, `SLACK_WEBHOOK_APPROVALS` | secrets, optional | One Slack incoming webhook per channel. Any left unset is skipped; everything else works. See section 4. |
+| `SLACK_MENTION_NEEDS_HUMAN`, `SLACK_MENTION_SECURITY`, `SLACK_MENTION_APPROVALS` | variables, optional | Who to ping in each channel, e.g. `<!subteam^S0123ABCD>` for a user group or `<!here>`. |
 | `LLM_BASE_URL` | variable | The `openweight` provider's OpenAI-compatible endpoint, e.g. `http://gpu-box:8000/v1`. |
 | `LLM_API_KEY` | secret, optional | Only if that endpoint requires a key. |
 | `LLM_CONTEXT` | variable, optional | Context window of the model in tokens (default 131072). Match your server's setting. |
@@ -51,7 +48,7 @@ risky". It does three things:
 
 - **Routes the PR to a person.** `review-policy.toml` maps it to the `elevated` tier, so even a
   docs-only PR needs one approval. Like every escalation, it can raise a tier and never lower one.
-- **Notifies the team** in Slack, with the PR link, tier, and open findings.
+- **Notifies the team** in the needs-human Slack channel, with the PR link, tier, and open findings.
 - **Stops the loop.** It marks the point where another automated round is unlikely to help.
 
 It gets set in three ways:
@@ -65,45 +62,72 @@ It gets set in three ways:
 A rerun of the same commit doesn't count as a round, a clean round resets the count, and a review
 with no usable output neither counts nor resets.
 
-### Configure the Slack webhook
+## 4. Slack notifications
 
-1. Go to [api.slack.com/apps](https://api.slack.com/apps), choose **Create New App** > **From
+Three review events post to Slack, each to its own channel so the people watching it get only
+that context:
+
+| Channel (suggested name) | Layer | Posts when | Who watches it |
+|---|---|---|---|
+| `#review-needs-human` | 1 and 2 | A PR gets `needs-human`: `/pre-pr` stopped, or the round cap hit | The engineers who direct the agents |
+| `#review-security` | 3 | The security verdict is `fail`, `escalate`, or `unavailable` | Security reviewers |
+| `#review-approvals` | 5 | The gate first puts a PR in a tier that needs a person and approvals are missing | Whoever approves that tier, e.g. code owners |
+
+Each channel is optional; leave its secret unset and that event stays on GitHub only. A `pass`
+verdict and a `low`-tier PR never post. The approvals notice posts once per tier: a push that
+keeps the tier is quiet, and an escalation into a higher tier posts again. Keep it that way: a
+channel that pings on every PR gets muted.
+
+### Configure the webhooks
+
+One Slack app can hold all three webhooks. An incoming webhook posts to the one channel picked
+when it was created, so the channel separation comes from the webhooks themselves.
+
+1. Create the channels you want (the names above are suggestions).
+2. Go to [api.slack.com/apps](https://api.slack.com/apps), choose **Create New App** > **From
    scratch**, name it (e.g. `PR review`), and pick your workspace.
-2. Under **Features** > **Incoming Webhooks**, turn on **Activate Incoming Webhooks**.
-3. Click **Add New Webhook to Workspace**, pick the channel the team watches, and allow it.
-   Workspace admins may need to approve the app first.
-4. Copy the webhook URL (`https://hooks.slack.com/services/...`) and store it as a secret:
+3. Under **Features** > **Incoming Webhooks**, turn on **Activate Incoming Webhooks**.
+4. Click **Add New Webhook to Workspace**, pick the first channel, and allow it. Repeat for each
+   channel. Workspace admins may need to approve the app first.
+5. Copy each webhook URL (`https://hooks.slack.com/services/...`) into its secret. `gh` prompts
+   for the value, so it never lands in your shell history:
 
    ```bash
-   gh secret set SLACK_WEBHOOK_URL --repo <org>/<repo>
+   gh secret set SLACK_WEBHOOK_NEEDS_HUMAN --repo <org>/<repo>
+   gh secret set SLACK_WEBHOOK_SECURITY    --repo <org>/<repo>
+   gh secret set SLACK_WEBHOOK_APPROVALS   --repo <org>/<repo>
    ```
 
-   Use an org-level secret if several repos post to the same channel.
-5. Optional: set who gets pinged. A user group mention needs the group's ID, which starts with
-   `S` (a workspace admin can look it up):
+   Use org-level secrets if several repos post to the same channels.
+6. Optional: set who gets pinged in each channel. A user group mention needs the group's ID, which
+   starts with `S` (a workspace admin can look it up):
 
    ```bash
-   gh variable set SLACK_MENTION --repo <org>/<repo> --body '<!subteam^S0123ABCD>'
+   gh variable set SLACK_MENTION_SECURITY --repo <org>/<repo> --body '<!subteam^S0123ABCD>'
    ```
 
-6. Test it from your machine before relying on CI:
+7. Test each one from your machine before relying on CI:
 
    ```bash
-   SLACK_WEBHOOK_URL='https://hooks.slack.com/services/...' python3 scripts/ci/notify_human_review.py \
-     --pr-url https://github.com/<org>/<repo>/pull/1 --title "Webhook test" --reason "setup test"
+   SLACK_WEBHOOK_SECURITY='https://hooks.slack.com/services/...' python3 scripts/ci/notify_slack.py \
+     --kind security --pr-url https://github.com/<org>/<repo>/pull/1 --title "Webhook test" --reason "setup test"
    ```
 
-   `--dry-run` prints the message instead of sending it.
+   `--kind` is `needs-human`, `security`, or `approval`. `--dry-run` prints the message instead
+   of sending it.
 
 Notes:
 
-- The webhook URL is a credential: anyone holding it can post to that channel. Keep it out of code
+- A webhook URL is a credential: anyone holding it can post to that channel. Keep it out of code
   and logs, and rotate it in the Slack app if it leaks.
-- PR titles and findings are escaped before posting, so a PR can't ping `@channel` or hide a link.
+- PR titles, findings, and reasons are escaped before posting, so a PR can't ping `@channel` or
+  hide a link.
 - A failed post shows as a warning in the run. It never fails a check; the gate decides merges.
-- Keep this to stuck PRs. If every `elevated` PR posted to Slack, the channel would get muted.
+- Fork PRs get no secrets, so for them only `human-review-notify.yml` (a person adding
+  `needs-human`) reaches Slack. Fork PRs always land in human review anyway: their security verdict
+  is `unavailable`.
 
-## 4. Branch protection (or a ruleset) on `main`
+## 5. Branch protection (or a ruleset) on `main`
 
 - Require a pull request before merging
 - Required approvals: **0**. The `review-gate` status enforces approvals by tier. A blanket
@@ -115,13 +139,13 @@ Notes:
 - Require merge queue: recommended (see below)
 - Do not allow bypassing for agents' identities. Admin bypass for humans is your call; it shows in the audit log.
 
-## 5. Merge queue
+## 6. Merge queue
 
 `ci.yml` and `review-pipeline.yml` already listen for `merge_group`. The pipeline posts
 `review-gate: success` on merge-group commits because only PRs that already satisfied protection
 can enter the queue.
 
-## 6. Release layer (your deploy tooling)
+## 7. Release layer (your deploy tooling)
 
 The template stops at merge. The rest of the stack is what makes it safe to merge with less reading:
 
@@ -131,13 +155,13 @@ The template stops at merge. The rest of the stack is what makes it safe to merg
   your review bar should be higher.
 - Link the deploy ID back to the PR so `incident-cause` labeling takes seconds.
 
-## 7. Bootstrapping
+## 8. Bootstrapping
 
 The PR that first adds this template can't be judged by it: the base branch has no policy or
 scripts yet, so `review-gate` stays pending. Merge that one PR with an admin override after a
 normal human review, or land it in two steps (scripts and policy first, workflows second).
 
-## 8. Local developer setup
+## 9. Local developer setup
 
 Nothing to install beyond opencode, git, python3, and make. `opencode.json`, `AGENTS.md`, and the
 files in `.opencode/` load automatically. Useful env vars for the verify plugin:

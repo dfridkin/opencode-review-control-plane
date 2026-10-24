@@ -7,6 +7,8 @@
 #   GH_TOKEN, REPO, PR_NUMBER, HEAD_SHA, PR_AUTHOR
 #   SECURITY_VERDICT   pass | escalate | fail | unavailable | pending
 #   RUN_URL            optional, linked from the status
+#   PR_URL, PR_TITLE   optional; with SLACK_WEBHOOK_APPROVALS set, a Layer 5 notice goes to the
+#                      approvals channel when the PR first needs a person at its current tier
 #
 # Run from a checkout of the BASE branch so the policy and scripts can't be
 # modified by the PR they are judging.
@@ -57,3 +59,14 @@ for old in $(echo "$labels" | tr ',' '\n' | grep '^tier:' || true); do
   [[ "$old" == "tier:${tier}" ]] || gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "$old" > /dev/null || true
 done
 gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "tier:${tier}" > /dev/null || true
+
+# Layer 5 Slack notice: once per tier, when this run first puts the PR in a tier that needs a
+# person and approvals are still missing. A push that keeps the tier does not post again.
+had_tier=0
+echo "$labels" | tr ',' '\n' | grep -qx "tier:${tier}" && had_tier=1
+need="$(jq -r .min_approvals "$work/classification.json")"
+if [[ "$state" == "pending" && "$need" != "0" && "$had_tier" == "0" && -n "${PR_URL:-}" ]]; then
+  jq '{reasons: .reasons}' "$work/classification.json" > "$work/reasons.json"
+  python3 scripts/ci/notify_slack.py --kind approval --pr-url "$PR_URL" --title "${PR_TITLE:-PR #$PR_NUMBER}" \
+    --author "$PR_AUTHOR" --tier "$tier" --reason "$desc" --details "$work/reasons.json" || true
+fi

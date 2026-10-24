@@ -1,4 +1,4 @@
-# Post to Slack when a person or /pre-pr adds the `needs-human` label.
+# Post to the needs-human Slack channel when a person or /pre-pr adds the `needs-human` label.
 #
 # agent-review.yml notifies on its own when it adds the label at the round cap: labels added
 # with the workflow's GITHUB_TOKEN don't trigger other workflows, so there is no double post.
@@ -33,8 +33,8 @@ jobs:
       - name: Notify the team
         env:
           GH_TOKEN: ${{ github.token }}
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_MENTION: ${{ vars.SLACK_MENTION }}
+          SLACK_WEBHOOK_NEEDS_HUMAN: ${{ secrets.SLACK_WEBHOOK_NEEDS_HUMAN }}
+          SLACK_MENTION_NEEDS_HUMAN: ${{ vars.SLACK_MENTION_NEEDS_HUMAN }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_URL: ${{ github.event.pull_request.html_url }}
@@ -44,6 +44,6 @@ jobs:
         run: |
           tier="$(gh api "repos/$REPO/issues/$PR_NUMBER/labels" \
             --jq '[.[].name | select(startswith("tier:")) | sub("^tier:"; "")] | first // ""')"
-          python3 scripts/ci/notify_human_review.py --pr-url "$PR_URL" --title "$PR_TITLE" \
+          python3 scripts/ci/notify_slack.py --kind needs-human --pr-url "$PR_URL" --title "$PR_TITLE" \
             --author "$PR_AUTHOR" --tier "$tier" \
             --reason "labeled needs-human by $SENDER. Open blockers are in the PR body or the review comment."

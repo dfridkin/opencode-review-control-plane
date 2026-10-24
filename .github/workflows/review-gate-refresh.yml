@@ -54,4 +54,9 @@ jobs:
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           SECURITY_VERDICT: ${{ steps.verdict.outputs.value }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # Layer 5 Slack notice when the PR first needs a person at its tier (see run_gate.sh)
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          SLACK_WEBHOOK_APPROVALS: ${{ secrets.SLACK_WEBHOOK_APPROVALS }}
+          SLACK_MENTION_APPROVALS: ${{ vars.SLACK_MENTION_APPROVALS }}
         run: bash scripts/ci/run_gate.sh

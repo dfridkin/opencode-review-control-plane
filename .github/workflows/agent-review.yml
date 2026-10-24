@@ -159,6 +159,11 @@ jobs:
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           BASE: ${{ github.event.pull_request.base.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # Layer 5 Slack notice when the PR first needs a person at its tier (see run_gate.sh)
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          SLACK_WEBHOOK_APPROVALS: ${{ secrets.SLACK_WEBHOOK_APPROVALS }}
+          SLACK_MENTION_APPROVALS: ${{ vars.SLACK_MENTION_APPROVALS }}
         run: |
           git worktree add -q "$RUNNER_TEMP/base" "$BASE"
           cd "$RUNNER_TEMP/base"
@@ -171,8 +176,8 @@ jobs:
         if: always() && steps.flag.outputs.added == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_MENTION: ${{ vars.SLACK_MENTION }}
+          SLACK_WEBHOOK_NEEDS_HUMAN: ${{ secrets.SLACK_WEBHOOK_NEEDS_HUMAN }}
+          SLACK_MENTION_NEEDS_HUMAN: ${{ vars.SLACK_MENTION_NEEDS_HUMAN }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_URL: ${{ github.event.pull_request.html_url }}
@@ -182,6 +187,6 @@ jobs:
         run: |
           tier="$(gh api "repos/$REPO/issues/$PR_NUMBER/labels" \
             --jq '[.[].name | select(startswith("tier:")) | sub("^tier:"; "")] | first // ""')"
-          python3 scripts/ci/notify_human_review.py --pr-url "$PR_URL" --title "$PR_TITLE" \
+          python3 scripts/ci/notify_slack.py --kind needs-human --pr-url "$PR_URL" --title "$PR_TITLE" \
             --author "$PR_AUTHOR" --tier "$tier" --findings "$RUNNER_TEMP/rounds.json" \
             --reason "$ROUNDS AI review rounds in a row ended with verified blockers or majors"
