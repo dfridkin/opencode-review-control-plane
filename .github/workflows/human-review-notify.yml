@@ -1,0 +1,49 @@
+# Post to Slack when a person or /pre-pr adds the `needs-human` label.
+#
+# agent-review.yml notifies on its own when it adds the label at the round cap: labels added
+# with the workflow's GITHUB_TOKEN don't trigger other workflows, so there is no double post.
+#
+# pull_request_target so fork PRs can reach the webhook secret. This is safe ONLY because the job
+# never checks out or runs PR code: the checkout is the base branch, and PR text goes through
+# env vars and is escaped before it reaches Slack. Keep it that way.
+
+name: human-review-notify
+
+on:
+  pull_request_target:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    if: ${{ github.event.label.name == 'needs-human' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          sparse-checkout: scripts/ci
+      - name: Notify the team
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_MENTION: ${{ vars.SLACK_MENTION }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          SENDER: ${{ github.event.sender.login }}
+        run: |
+          tier="$(gh api "repos/$REPO/issues/$PR_NUMBER/labels" \
+            --jq '[.[].name | select(startswith("tier:")) | sub("^tier:"; "")] | first // ""')"
+          python3 scripts/ci/notify_human_review.py --pr-url "$PR_URL" --title "$PR_TITLE" \
+            --author "$PR_AUTHOR" --tier "$tier" \
+            --reason "labeled needs-human by $SENDER. Open blockers are in the PR body or the review comment."

@@ -13,6 +13,10 @@
 #   REVIEW_BLOCK_ON none (default) | blocker | major
 # Secret: LLM_API_KEY (only if your endpoint needs one)
 #
+# Round cap: after REVIEW_ROUND_CAP (default 3) consecutive commits whose review still has a
+# verified blocker or major, the PR is labeled `needs-human`, the gate re-runs, and the team is
+# notified in Slack. See docs/SETUP.md, "Human review flag".
+#
 # Starts ADVISORY. Raise REVIEW_BLOCK_ON once the eval set and a few weeks of findings
 # show the false-positive rate is acceptable for the model you picked.
 
@@ -38,6 +42,7 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
+      statuses: write   # re-run review-gate when this job flags a PR needs-human
     env:
       REVIEW_MODEL: ${{ vars.REVIEW_MODEL }}
       LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
@@ -89,12 +94,14 @@ jobs:
             --pr "${{ github.event.pull_request.number }}" \
             --head-sha "${{ github.event.pull_request.head.sha }}"
 
-      - name: Summarize and apply blocking policy
+      - name: Summarize, count rounds, and apply blocking policy
+        id: summary
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           export REVIEW_JSON="$(cat "$RUNNER_TEMP/findings.json" 2>/dev/null || true)"
           set +e
@@ -104,6 +111,77 @@ jobs:
             --out "$RUNNER_TEMP/review-comment.md"
           rc=$?
           set -e
+          # Round cap: consecutive commits whose review still has a verified blocker or major.
+          # The count rides in a hidden marker on the summary comment.
+          gh api --paginate "repos/$REPO/issues/$PR_NUMBER/comments" \
+            --jq '.[] | select(.body | startswith("<!-- agent-review-summary -->")) | .body' \
+            > "$RUNNER_TEMP/previous.md" || true
+          python3 scripts/ci/review_rounds.py --previous "$RUNNER_TEMP/previous.md" \
+            --head-sha "$HEAD_SHA" --cap "${{ vars.REVIEW_ROUND_CAP || '3' }}" > "$RUNNER_TEMP/rounds.json"
+          rounds="$(jq -r .rounds "$RUNNER_TEMP/rounds.json")"
+          if [[ "$(jq -r .stuck "$RUNNER_TEMP/rounds.json")" == "true" ]]; then
+            printf '\n**%s review rounds in a row ended with verified blockers or majors.** Flagged `needs-human`.\n' "$rounds" \
+              >> "$RUNNER_TEMP/review-comment.md"
+            echo "stuck=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "rounds=$rounds" >> "$GITHUB_OUTPUT"
+          jq -r .marker "$RUNNER_TEMP/rounds.json" >> "$RUNNER_TEMP/review-comment.md"
           cat "$RUNNER_TEMP/review-comment.md" >> "$GITHUB_STEP_SUMMARY"
           bash scripts/ci/upsert_comment.sh agent-review-summary "$RUNNER_TEMP/review-comment.md"
           exit $rc
+
+      # Stuck: stop re-reviewing the same problem and hand it to a person.
+      - name: Flag for a human
+        id: flag
+        if: always() && steps.summary.outputs.stuck == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if gh api "repos/$REPO/issues/$PR_NUMBER/labels" --jq '.[].name' | grep -qx needs-human; then
+            echo "already flagged"; exit 0
+          fi
+          gh label create needs-human --repo "$REPO" --color B60205 \
+            --description "Agent is stuck: a person needs to look" --force > /dev/null 2>&1 || true
+          gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label needs-human > /dev/null
+          echo "added=true" >> "$GITHUB_OUTPUT"
+
+      # Labels added with GITHUB_TOKEN don't trigger review-gate-refresh, so re-run the gate
+      # here, from a worktree of the base commit (same trust rule as the gate jobs).
+      - name: Re-run review-gate with the new label
+        if: always() && steps.flag.outputs.added == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          git worktree add -q "$RUNNER_TEMP/base" "$BASE"
+          cd "$RUNNER_TEMP/base"
+          [[ -f scripts/ci/run_gate.sh ]] || { echo "no gate on base yet (bootstrap PR)"; exit 0; }
+          export SECURITY_VERDICT="$(gh api "repos/$REPO/issues/$PR_NUMBER/labels" \
+            --jq '[.[].name | select(startswith("security:")) | sub("^security:"; "")] | first // "pending"')"
+          bash scripts/ci/run_gate.sh
+
+      - name: Notify the team
+        if: always() && steps.flag.outputs.added == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_MENTION: ${{ vars.SLACK_MENTION }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          ROUNDS: ${{ steps.summary.outputs.rounds }}
+        run: |
+          tier="$(gh api "repos/$REPO/issues/$PR_NUMBER/labels" \
+            --jq '[.[].name | select(startswith("tier:")) | sub("^tier:"; "")] | first // ""')"
+          python3 scripts/ci/notify_human_review.py --pr-url "$PR_URL" --title "$PR_TITLE" \
+            --author "$PR_AUTHOR" --tier "$tier" --findings "$RUNNER_TEMP/rounds.json" \
+            --reason "$ROUNDS AI review rounds in a row ended with verified blockers or majors"

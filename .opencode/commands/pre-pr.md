@@ -40,6 +40,9 @@ Run both in parallel when both apply.
 
 - blocker / major: fix, re-run `make verify`, then run `diff-reviewer` ONE more time.
   If new blockers appear on the second pass, stop and report them. Do not loop.
+  If the user still wants the PR opened, open it with the `needs-human` label
+  (`gh pr create --label needs-human`) and list the open blockers under "Review findings".
+  The label routes the PR to a person and notifies the team.
 - security `fail`: fix or stop. `escalate`: keep going, but say so prominently in the PR body.
 - minor / nit: do not fix unless trivial. List them under "Known, not addressed".
 - If you disagree with a finding, keep it in the list with one line on why.

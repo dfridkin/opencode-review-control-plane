@@ -10,7 +10,7 @@ trusts, and what it leaves out. Start with the [README](../README.md) and [SETUP
 | 0 | Baseline | Revert share, incident-linked PRs, review rounds, time to merge, human-approved share | `scripts/review_metrics.py`, `review-metrics.yml` |
 | 1 | Incident evals | Past incidents replayed against the reviewer, one baseline per model | `evals/`, `review-evals.yml` |
 | 2 | Pre-PR | Plugin blocks "done" while `make verify` fails; `/pre-pr` runs a fresh-context review subagent | `.opencode/plugins/`, `scripts/hooks/`, `.opencode/commands/`, `.opencode/agents/` |
-| 3 | PR review | One `bug-hunter` per focus area, then a `finding-verifier` per candidate; only confirmed findings get posted | `agent-review.yml`, `scripts/review_orchestrator.py` |
+| 3 | PR review | One `bug-hunter` per focus area, then a `finding-verifier` per candidate; only confirmed findings get posted. A round cap flags stuck PRs `needs-human` and notifies Slack | `agent-review.yml`, `human-review-notify.yml`, `scripts/review_orchestrator.py` |
 | 4 | Security | Blocking review: `pass`, `escalate` (route to a human), or `fail` (block) | `review-pipeline.yml`, `.github/review-prompts/security.md` |
 | 5 | CI | Lint, types, tests, coverage floor. Fails until you wire it | `ci.yml`, `Makefile` |
 | 6 | Human gate | Risk tier from paths and size; model output can only escalate | `review-policy.toml`, `scripts/risk_classify.py`, `scripts/review_gate.py` |
@@ -71,9 +71,9 @@ The PR under review must not be able to change the rules it's judged by.
 
 ## Not included (yet)
 
-- **Converging review loops:** a round cap, diff-only re-review after the first passes, and no
-  repeated findings. The post reports these cut PRs needing five or more rounds from 8.9% to 1.5%.
-  `/pre-pr` caps itself at one re-review; CI review re-reviews the full diff on every push.
+- **Diff-only re-review and no repeated findings.** The post reports these, with a round cap, cut
+  PRs needing five or more rounds from 8.9% to 1.5%. This template has the round cap (`needs-human`
+  after `REVIEW_ROUND_CAP` stuck rounds) but re-reviews the full diff on every push.
 - **Verifier voting:** the post uses several verifiers per finding; this template uses one.
 - **Daily eval runs.** `review-evals.yml` runs weekly and on reviewer changes.
 - **Feature flags and staged rollout.** Use your own deploy tooling.
@@ -102,7 +102,7 @@ opencode.json              permissions, rules, open-weight provider example
   rules/                   testing, PR scope, security
 ci/opencode.ci.json        locked-down config for CI review jobs
 .github/
-  workflows/               ci, agent-review, review-pipeline, review-gate-refresh, review-evals, review-metrics
+  workflows/               ci, agent-review, review-pipeline, review-gate-refresh, human-review-notify, review-evals, review-metrics
   review-prompts/          bug-hunt.md, security.md + JSON schemas
   CODEOWNERS               generated from review-policy.toml
   pull_request_template.md

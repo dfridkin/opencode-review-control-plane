@@ -121,7 +121,10 @@ paths = [
 
 [escalation]
 # PR labels that force a tier. Any maintainer can add one to pull a PR into human review.
-labels = { "risk:high" = "critical" }
+#   risk:high    the change is risky: route it to a code owner
+#   needs-human  the agent is stuck (see docs/SETUP.md, "Human review flag"): route it to a person
+#                and notify the team. Set by /pre-pr and by agent-review.yml at the round cap.
+labels = { "risk:high" = "critical", "needs-human" = "elevated" }
 # Security review verdicts mapped to tiers. "fail" blocks the gate outright.
 # Any verdict not listed here and not "pass" (e.g. "unavailable" when the job errored or
 # had no API key) fails closed into the lowest tier that requires a human.

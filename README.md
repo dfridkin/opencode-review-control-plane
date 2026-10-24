@@ -31,7 +31,8 @@ change gets. Three things change:
 1. **Pre-PR.** A plugin blocks the agent from finishing while `make verify` fails. `/pre-pr` runs a
    fresh-context review subagent and drafts an evidence-first PR description.
 2. **AI review.** One bug-hunting agent per focus area, then a verifier that tries to refute each
-   finding. Only confirmed findings get posted.
+   finding. Only confirmed findings get posted. A PR still blocked after three rounds gets a
+   `needs-human` label and a Slack notice.
 3. **Security review.** Can pass, route to a human, or block.
 4. **Required CI.** Lint, types, tests, coverage floor.
 5. **Risk gate.** Docs merge on automated checks; ordinary code needs one person; auth, billing,
